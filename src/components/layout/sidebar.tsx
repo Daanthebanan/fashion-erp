@@ -81,6 +81,11 @@ const groups: NavigationGroup[] = [
         icon: "document",
       },
       {
+        label: "Open-to-buy",
+        href: "/inkoop/otb",
+        icon: "sales",
+      },
+      {
         label: "Ontvangsten",
         href: "/inkoop/ontvangsten",
         icon: "check",
