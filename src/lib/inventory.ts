@@ -6,9 +6,9 @@ import {
 } from "@/lib/articles";
 import { getSharedStateValue, setSharedStateValue } from "@/lib/shared-state-client";
 import {
-  getPurchaseOrders,
   getPurchaseOrderTotals,
   getPurchaseReceipts,
+  type PurchaseOrder,
 } from "@/lib/purchasing";
 
 export type InventoryMovementType =
@@ -224,17 +224,19 @@ export function setInventoryVariantSettings(
   saveSettings(settings);
 }
 
-function getIncomingByVariant() {
+function getIncomingByVariant(
+  purchaseOrders: PurchaseOrder[],
+) {
   const incoming = new Map<string, number>();
 
-  getPurchaseOrders()
+  purchaseOrders
     .filter(
       (order) =>
         order.status === "Besteld" ||
         order.status === "Deels ontvangen",
     )
     .forEach((order) => {
-      order.lines.forEach((line) => {
+      (order.lines ?? []).forEach((line) => {
         const remaining = Math.max(
           0,
           line.orderedQuantity -
@@ -272,11 +274,17 @@ function getLastMovementByVariant() {
   return lastMovement;
 }
 
-export function getInventoryRows(): InventoryVariantRow[] {
+/**
+ * @param purchaseOrders Inkooporders uit de database (fetchPurchaseOrders).
+ */
+export function getInventoryRows(
+  purchaseOrders: PurchaseOrder[],
+): InventoryVariantRow[] {
   reconcilePurchaseReceiptMovements();
 
   const products = getStoredProducts();
-  const incomingByVariant = getIncomingByVariant();
+  const incomingByVariant =
+    getIncomingByVariant(purchaseOrders);
   const lastMovementByVariant =
     getLastMovementByVariant();
   const settings = getSettings();
@@ -334,9 +342,10 @@ export function getInventoryRows(): InventoryVariantRow[] {
 
 export function getInventoryRowByVariantId(
   variantId: string,
+  purchaseOrders: PurchaseOrder[],
 ) {
   return (
-    getInventoryRows().find(
+    getInventoryRows(purchaseOrders).find(
       (row) => row.variantId === variantId,
     ) ?? null
   );
@@ -570,8 +579,13 @@ export function reconcilePurchaseReceiptMovements() {
   }
 }
 
-export function getInventoryDashboard() {
-  const rows = getInventoryRows();
+/**
+ * @param purchaseOrders Inkooporders uit de database (fetchPurchaseOrders).
+ */
+export function getInventoryDashboard(
+  purchaseOrders: PurchaseOrder[],
+) {
+  const rows = getInventoryRows(purchaseOrders);
   const movements = getInventoryMovements();
 
   const physicalStock = rows.reduce(
@@ -614,7 +628,7 @@ export function getInventoryDashboard() {
     (row) => row.availableStock === 0,
   ).length;
 
-  const openPurchaseValue = getPurchaseOrders()
+  const openPurchaseValue = purchaseOrders
     .filter(
       (order) =>
         order.status === "Besteld" ||

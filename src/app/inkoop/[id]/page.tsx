@@ -16,12 +16,10 @@ import { openBusinessDocumentPdf } from "@/lib/document-pdf";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   updatePurchaseOrderStatusRemote,
-  deletePurchaseOrder,
-    duplicatePurchaseOrder,
-  getPurchaseOrderById,
+  duplicatePurchaseOrder,
+  fetchReceiptsForPurchaseOrder,
   getPurchaseOrderDaysOverdue,
   getPurchaseOrderTotals,
-  getReceiptsForPurchaseOrder,
   isPurchaseOrderOverdue,
   reopenPurchaseOrder,
   type PurchaseOrder,
@@ -199,18 +197,8 @@ export default function PurchaseOrderDetailPage() {
         createReceiveValues(selectedOrder),
       );
 
-      const receiptResponse =
-        await fetch(
-          `/api/purchase-orders/${params.id}/receipts`,
-        );
-
-      const receiptData =
-        await receiptResponse.json();
-
       setReceipts(
-        Array.isArray(receiptData)
-          ? receiptData
-          : [],
+        await fetchReceiptsForPurchaseOrder(params.id),
       );
     } else {
       setReceipts([]);
@@ -400,27 +388,6 @@ export default function PurchaseOrderDetailPage() {
     );
   }
 
-  function updateLocalOrder(
-    updatedOrder: PurchaseOrder | null,
-    message: string,
-  ) {
-    if (!updatedOrder) {
-      return;
-    }
-
-    setOrder(updatedOrder);
-    setReceiveValues(
-      createReceiveValues(updatedOrder),
-    );
-    setReceipts(
-      getReceiptsForPurchaseOrder(
-        updatedOrder.id,
-      ),
-    );
-    setNotification(message);
-    setError(null);
-  }
-
   async function handleMarkOrdered() {
     const response = await fetch(
       `/api/purchase-orders/${order!.id}`,
@@ -482,16 +449,16 @@ export default function PurchaseOrderDetailPage() {
     setShowActions(false);
   }
 
-  function handleReopen() {
+  async function handleReopen() {
     try {
-      const updated = reopenPurchaseOrder(
-        order!.id,
-      );
+      await reopenPurchaseOrder(order!);
 
-      updateLocalOrder(
-        updated,
+      await reloadOrder();
+
+      setNotification(
         "De inkooporder is opnieuw geopend.",
       );
+      setError(null);
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -503,10 +470,10 @@ export default function PurchaseOrderDetailPage() {
     setShowActions(false);
   }
 
-  function handleDuplicate() {
+  async function handleDuplicate() {
     try {
       const duplicate =
-        duplicatePurchaseOrder(order!.id);
+        await duplicatePurchaseOrder(order!);
 
       router.push(`/inkoop/${duplicate.id}`);
     } catch (caughtError) {

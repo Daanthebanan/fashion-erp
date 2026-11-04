@@ -11,6 +11,10 @@ import {
   getSupplyDashboard,
   type SupplyDimensionRow,
 } from "@/lib/supply-intelligence";
+import {
+  fetchPurchaseOrders,
+  type PurchaseOrder,
+} from "@/lib/purchasing";
 import styles from "./supply-intelligence.module.css";
 
 type Dimension =
@@ -56,8 +60,25 @@ export default function SupplyIntelligencePage() {
     SupplyDimensionRow[]
   >([]);
 
+  const [purchaseOrders, setPurchaseOrders] = useState<
+    PurchaseOrder[]
+  >([]);
+
   useEffect(() => {
-    setLoaded(true);
+    let active = true;
+
+    // Echte inkooporders uit de database (niet de oude lokale opslag).
+    fetchPurchaseOrders()
+      .catch(() => [] as PurchaseOrder[])
+      .then((orders) => {
+        if (!active) return;
+        setPurchaseOrders(orders);
+        setLoaded(true);
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -72,7 +93,7 @@ export default function SupplyIntelligencePage() {
     return null;
   }
 
-  const dashboard = getSupplyDashboard();
+  const dashboard = getSupplyDashboard(purchaseOrders);
   const advice = getSimpleOrderAdvice();
 
   return (

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { fetchProducts, type Product } from "@/lib/articles";
 import { fetchSuppliers, type Supplier } from "@/lib/suppliers";
 import { loadSalesOrders, type SalesOrder } from "@/lib/sales";
-import { getPurchaseOrders } from "@/lib/purchasing";
+import type { PurchaseOrder } from "@/lib/purchasing";
 
 type DemandVariant = {
   variantId: string;
@@ -83,6 +83,7 @@ export default function PurchaseDemandPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [supplierFilter, setSupplierFilter] = useState("");
   const [search, setSearch] = useState("");
   const [extraByVariant, setExtraByVariant] = useState<Record<string, number>>({});
@@ -105,6 +106,17 @@ export default function PurchaseDemandPage() {
       fetchProducts(),
       fetchSuppliers(),
       loadSalesOrders(),
+      // Echte inkooporders uit de database; de oude lokale opslag
+      // (getPurchaseOrders) bevat deze orders niet.
+      fetch("/api/purchase-orders", { cache: "no-store" }).then(
+        async (response) => {
+          const body = await response.json();
+          if (!response.ok) {
+            throw new Error(body.error ?? "Inkooporders ophalen mislukt.");
+          }
+          return (Array.isArray(body) ? body : []) as PurchaseOrder[];
+        },
+      ),
       fetch("/api/purchase-demand/decisions", { cache: "no-store" }).then(
         async (response) => {
           const body = await response.json();
@@ -119,11 +131,12 @@ export default function PurchaseDemandPage() {
         },
       ),
     ])
-      .then(([loadedProducts, loadedSuppliers, loadedOrders, loadedDecisions]) => {
+      .then(([loadedProducts, loadedSuppliers, loadedOrders, loadedPurchaseOrders, loadedDecisions]) => {
         if (!active) return;
         setProducts(loadedProducts);
         setSuppliers(loadedSuppliers);
         setSalesOrders(loadedOrders);
+        setPurchaseOrders(loadedPurchaseOrders);
         setDecisionByProductColor(
           Object.fromEntries(
             loadedDecisions.map((item) => [
@@ -273,10 +286,10 @@ export default function PurchaseDemandPage() {
 
     const alreadyOrderedByVariant = new Map<string, number>();
 
-    for (const purchaseOrder of getPurchaseOrders()) {
+    for (const purchaseOrder of purchaseOrders) {
       if (purchaseOrder.status === "Geannuleerd") continue;
 
-      for (const line of purchaseOrder.lines) {
+      for (const line of purchaseOrder.lines ?? []) {
         alreadyOrderedByVariant.set(
           line.variantId,
           (alreadyOrderedByVariant.get(line.variantId) ?? 0) +
@@ -392,7 +405,7 @@ export default function PurchaseDemandPage() {
       .sort((a, b) =>
         a.supplier.companyName.localeCompare(b.supplier.companyName),
       );
-  }, [products, suppliers, salesOrders, supplierFilter, search]);
+  }, [products, suppliers, salesOrders, purchaseOrders, supplierFilter, search]);
 
   async function createPurchaseOrder(
     group: SupplierGroup,

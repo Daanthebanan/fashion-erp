@@ -5,7 +5,8 @@ import {
   getInvoiceOutstandingAmount,
 } from "@/lib/invoices";
 import {
-  getPurchaseOrders,
+  isPurchaseOrderOverdue,
+  type PurchaseOrder,
 } from "@/lib/purchasing";
 import {
   getCustomerReturns,
@@ -29,12 +30,16 @@ export type AuditCheck = {
   detail: string;
 };
 
-export function runWorkflowAudit(): AuditCheck[] {
+/**
+ * @param purchases Inkooporders uit de database (fetchPurchaseOrders).
+ */
+export function runWorkflowAudit(
+  purchases: PurchaseOrder[],
+): AuditCheck[] {
   const orders = getSalesOrders();
   const invoices = getInvoices();
   const returns = getCustomerReturns();
   const credits = getCreditNotes();
-  const purchases = getPurchaseOrders();
   const history = getHistoryEvents();
 
   const shippedWithoutInvoice =
@@ -66,18 +71,10 @@ export function runWorkflowAudit(): AuditCheck[] {
         ) < 0,
     );
 
+  // Zelfde definitie als het inkoopoverzicht: alleen bestelde orders
+  // met een verstreken leverdatum (geen concepten of orders zonder datum).
   const overduePurchases =
-    purchases.filter(
-      (order) =>
-        ![
-          "Ontvangen",
-          "Geannuleerd",
-        ].includes(order.status) &&
-        order.expectedDeliveryDate <
-          new Date()
-            .toISOString()
-            .slice(0, 10),
-    );
+    purchases.filter(isPurchaseOrderOverdue);
 
   return [
     {

@@ -17,7 +17,7 @@ import {
   type InventoryVariantRow,
 } from "@/lib/inventory";
 import {
-  getPurchaseOrders,
+  fetchPurchaseOrders,
   type PurchaseOrder,
 } from "@/lib/purchasing";
 import {
@@ -147,10 +147,14 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function loadDashboardData() {
-      const orders = await loadSalesOrders();
+      const [orders, loadedPurchaseOrders] = await Promise.all([
+        loadSalesOrders(),
+        // Echte inkooporders uit de database (niet de oude lokale opslag).
+        fetchPurchaseOrders().catch(() => [] as PurchaseOrder[]),
+      ]);
 
       setSalesOrders(orders);
-      setPurchaseOrders(getPurchaseOrders());
+      setPurchaseOrders(loadedPurchaseOrders);
       setInvoices(getInvoices());
       setLoaded(true);
 
@@ -315,11 +319,10 @@ export default function DashboardPage() {
     () =>
       purchaseOrders
         .filter(
+          // Alleen bestelde orders worden verwacht; concepten nog niet.
           (order) =>
-            ![
-              "Ontvangen",
-              "Geannuleerd",
-            ].includes(order.status),
+            order.status === "Besteld" ||
+            order.status === "Deels ontvangen",
         )
         .sort((first, second) => {
           const firstDate =

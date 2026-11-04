@@ -14,7 +14,8 @@ import {
   getInvoiceOutstandingAmount,
 } from "@/lib/invoices";
 import {
-  getPurchaseOrders,
+  fetchPurchaseOrders,
+  type PurchaseOrder,
 } from "@/lib/purchasing";
 import {
   getSalesOrders,
@@ -31,9 +32,25 @@ function money(value: number) {
 
 export default function ReportsPage() {
   const [loaded, setLoaded] = useState(false);
+  const [purchaseOrders, setPurchaseOrders] = useState<
+    PurchaseOrder[]
+  >([]);
 
   useEffect(() => {
-    setLoaded(true);
+    let active = true;
+
+    // Echte inkooporders uit de database (niet de oude lokale opslag).
+    fetchPurchaseOrders()
+      .catch(() => [] as PurchaseOrder[])
+      .then((orders) => {
+        if (!active) return;
+        setPurchaseOrders(orders);
+        setLoaded(true);
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const report = useMemo(() => {
@@ -41,8 +58,6 @@ export default function ReportsPage() {
 
     const invoices = getInvoices();
     const salesOrders = getSalesOrders();
-    const purchaseOrders =
-      getPurchaseOrders();
     const products = getStoredProducts();
 
     const revenue = invoices
@@ -134,7 +149,7 @@ export default function ReportsPage() {
         .sort((a, b) => b[1] - a[1])
         .slice(0, 10),
     };
-  }, [loaded]);
+  }, [loaded, purchaseOrders]);
 
   if (!report) return null;
 

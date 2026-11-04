@@ -93,7 +93,22 @@ export async function GET() {
   const incomingByVariant =
     new Map<string, number>();
 
+  // Alleen bestelde (en deels ontvangen) inkooporders zijn onderweg;
+  // concepten en geannuleerde orders tellen niet mee.
+  const incomingStatuses = new Set([
+    "Besteld",
+    "Deels ontvangen",
+  ]);
+
   for (const line of purchaseLines ?? []) {
+    const purchaseOrder = Array.isArray(line.purchase_orders)
+      ? line.purchase_orders[0]
+      : line.purchase_orders;
+
+    if (!incomingStatuses.has(purchaseOrder?.status ?? "")) {
+      continue;
+    }
+
     const open =
       Number(line.ordered_quantity ?? 0) -
       Number(line.received_quantity ?? 0);
@@ -108,8 +123,18 @@ export async function GET() {
     }
   }
 
+  // Een variant kan op meerdere locaties voorraad hebben; ken de
+  // inkomende aantallen maar één keer per variant toe.
+  const variantsWithIncoming = new Set<string>();
+
   return NextResponse.json(
     (data ?? []).map((row: any) => {
+      const variantId: string = row.product_variants?.id ?? "";
+      const incomingStock = variantsWithIncoming.has(variantId)
+        ? 0
+        : (incomingByVariant.get(variantId) ?? 0);
+      variantsWithIncoming.add(variantId);
+
       const quantity =
         Number(row.quantity ?? 0);
 
@@ -164,10 +189,7 @@ export async function GET() {
         availableStock:
           quantity - reserved,
 
-        incomingStock:
-          incomingByVariant.get(
-            row.product_variants?.id,
-          ) ?? 0,
+        incomingStock,
 
         minimumStock:
           0,

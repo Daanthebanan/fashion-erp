@@ -12,6 +12,11 @@ import {
   type InventoryCorrectionInput,
   type InventoryVariantRow,
 } from "@/lib/inventory";
+import {
+  fetchPurchaseOrders,
+  getPurchaseOrderTotals,
+  type PurchaseOrder,
+} from "@/lib/purchasing";
 import styles from "./inventory.module.css";
 
 type StockFilter =
@@ -125,6 +130,8 @@ export default function InventoryPage() {
 
   const [error, setError] =
     useState<string | null>(null);
+  const [purchaseOrders, setPurchaseOrders] =
+    useState<PurchaseOrder[]>([]);
 
   const [correctionForm, setCorrectionForm] =
     useState<CorrectionForm>({
@@ -135,6 +142,10 @@ export default function InventoryPage() {
     });
 
   async function reload() {
+    void fetchPurchaseOrders()
+      .then(setPurchaseOrders)
+      .catch(() => setPurchaseOrders([]));
+
     const response =
       await fetch("/api/inventory");
 
@@ -212,9 +223,19 @@ export default function InventoryPage() {
       0,
     );
 
-    const incomingStock = rows.reduce(
-      (total, row) =>
-        total + row.incomingStock,
+    // Onderweg en openstaande inkoopwaarde komen uit de echte
+    // inkooporders (database), met de inkoopprijs van de orderregel.
+    // Zo tellen ook varianten mee die nog geen voorraadregel hebben.
+    const openPurchaseOrders = purchaseOrders.filter(
+      (order) =>
+        order.status === "Besteld" ||
+        order.status === "Deels ontvangen",
+    );
+
+    const incomingStock = openPurchaseOrders.reduce(
+      (total, order) =>
+        total +
+        getPurchaseOrderTotals(order).remainingQuantity,
       0,
     );
 
@@ -235,12 +256,13 @@ export default function InventoryPage() {
       (row) => row.availableStock === 0,
     ).length;
 
-    const openPurchaseValue = rows.reduce(
-      (total, row) =>
-        total +
-        row.incomingStock * row.purchasePrice,
-      0,
-    );
+    const openPurchaseValue = openPurchaseOrders
+      .reduce(
+        (total, order) =>
+          total +
+          getPurchaseOrderTotals(order).remainingValue,
+        0,
+      );
 
     return {
       totalVariants: rows.length,
@@ -253,7 +275,7 @@ export default function InventoryPage() {
       outOfStockVariants,
       openPurchaseValue,
     };
-  }, [rows]);
+  }, [rows, purchaseOrders]);
 
   const collections = useMemo(() => {
     return Array.from(

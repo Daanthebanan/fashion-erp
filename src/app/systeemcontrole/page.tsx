@@ -9,6 +9,7 @@ import {
   runWorkflowAudit,
   type AuditCheck,
 } from "@/lib/workflow-audit";
+import { fetchPurchaseOrders } from "@/lib/purchasing";
 import styles from "./stability.module.css";
 
 export default function StabilityPage() {
@@ -16,12 +17,14 @@ export default function StabilityPage() {
     AuditCheck[]
   >([]);
 
-  function reload() {
-    setChecks(runWorkflowAudit());
+  async function reload() {
+    // Echte inkooporders uit de database (niet de oude lokale opslag).
+    const purchases = await fetchPurchaseOrders().catch(() => []);
+    setChecks(runWorkflowAudit(purchases));
   }
 
   useEffect(() => {
-    reload();
+    void reload();
   }, []);
 
   return (
@@ -34,7 +37,7 @@ export default function StabilityPage() {
           <button
             type="button"
             className="button button-primary"
-            onClick={reload}
+            onClick={() => void reload()}
           >
             Controle opnieuw uitvoeren
           </button>

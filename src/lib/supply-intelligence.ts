@@ -9,9 +9,7 @@ import {
 import {
   getCustomerReturns,
 } from "@/lib/returns";
-import {
-  getPurchaseOrders,
-} from "@/lib/purchasing";
+import type { PurchaseOrder } from "@/lib/purchasing";
 
 type Dimension =
   | "category"
@@ -190,13 +188,17 @@ export function buildSupplyAnalysis(
     );
 }
 
-export function getSupplyDashboard() {
+/**
+ * @param purchases Inkooporders uit de database (fetchPurchaseOrders).
+ */
+export function getSupplyDashboard(
+  purchases: PurchaseOrder[],
+) {
   const products = getStoredProducts();
   const orders = getSalesOrders().filter(
     (order) => order.status !== "Geannuleerd",
   );
   const returns = getCustomerReturns();
-  const purchases = getPurchaseOrders();
 
   const sold = orders.reduce(
     (total, order) =>
@@ -232,18 +234,17 @@ export function getSupplyDashboard() {
     0,
   );
 
+  // Onderweg = bestelde orders; concepten zijn nog niet besteld.
   const incoming = purchases
     .filter(
       (order) =>
-        ![
-          "Ontvangen",
-          "Geannuleerd",
-        ].includes(order.status),
+        order.status === "Besteld" ||
+        order.status === "Deels ontvangen",
     )
     .reduce(
       (total, order) =>
         total +
-        order.lines.reduce(
+        (order.lines ?? []).reduce(
           (lineTotal, line) =>
             lineTotal +
             Math.max(

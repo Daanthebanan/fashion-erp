@@ -23,9 +23,13 @@ function mapPurchaseOrder(row: any) {
     supplierReference: row.supplier_reference ?? "",
     supplierId: row.supplier_id,
     supplierName: row.suppliers?.company_name ?? "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at ?? row.created_at,
     lines: (row.purchase_order_lines ?? []).map((line: any) => ({
       id: line.id,
       variantId: line.variant_id,
+      productId:
+        line.product_variants?.products?.id ?? "",
       productName:
         line.product_variants?.products?.name ?? "",
       productCode:
@@ -111,6 +115,7 @@ export async function GET() {
               color,
               size,
               products(
+                id,
                 product_code,
                 name,
                 season

@@ -186,6 +186,12 @@ function getNextReceiptNumber(
   ).padStart(5, "0")}`;
 }
 
+/**
+ * Leest uit de oude lokale gedeelde opslag (fashion-erp-purchase-orders).
+ * Die opslag wordt niet meer gevuld: echte inkooporders staan in Supabase.
+ * Gebruik fetchPurchaseOrders() voor actuele gegevens.
+ * @deprecated
+ */
 export function getPurchaseOrders(): PurchaseOrder[] {
   return getSharedStateValue<PurchaseOrder[]>(orderStorageKey, []).map(
     normalizePurchaseOrder,
@@ -208,6 +214,7 @@ export function savePurchaseReceipts(
   setSharedStateValue(receiptStorageKey, receipts);
 }
 
+/** @deprecated Leest uit de oude lokale opslag; gebruik loadPurchaseOrderById. */
 export function getPurchaseOrderById(id: string) {
   return (
     getPurchaseOrders().find(
@@ -225,17 +232,39 @@ export function getPurchaseOrderById(id: string) {
 export async function loadPurchaseOrderById(
   id: string,
 ): Promise<PurchaseOrder | null> {
+  try {
+    const orders = await fetchPurchaseOrders();
+    return orders.find((order) => order.id === id) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Haalt alle inkooporders van de organisatie op uit de database
+ * (GET /api/purchase-orders). Gooit een fout als het ophalen mislukt.
+ */
+export async function fetchPurchaseOrders(): Promise<PurchaseOrder[]> {
   const response = await fetch("/api/purchase-orders", {
     cache: "no-store",
   });
 
-  const orders = (await response.json()) as PurchaseOrder[];
+  const body = await response.json().catch(() => null);
 
-  if (!Array.isArray(orders)) {
-    return null;
+  if (!response.ok) {
+    throw new Error(
+      (body && typeof body.error === "string" && body.error) ||
+        "Inkooporders ophalen mislukt.",
+    );
   }
 
-  return orders.find((order) => order.id === id) ?? null;
+  return (Array.isArray(body) ? body : []).map(
+    (order: PurchaseOrder) =>
+      normalizePurchaseOrder({
+        ...order,
+        lines: Array.isArray(order.lines) ? order.lines : [],
+      }),
+  );
 }
 
 export function getPurchaseReceiptById(
@@ -248,6 +277,23 @@ export function getPurchaseReceiptById(
   );
 }
 
+/**
+ * Haalt de ontvangsten van een inkooporder op uit de database.
+ */
+export async function fetchReceiptsForPurchaseOrder(
+  purchaseOrderId: string,
+): Promise<PurchaseReceipt[]> {
+  const response = await fetch(
+    `/api/purchase-orders/${purchaseOrderId}/receipts`,
+    { cache: "no-store" },
+  );
+
+  const data = await response.json().catch(() => null);
+
+  return Array.isArray(data) ? data : [];
+}
+
+/** @deprecated Leest uit de oude lokale opslag; gebruik fetchReceiptsForPurchaseOrder. */
 export function getReceiptsForPurchaseOrder(
   purchaseOrderId: string,
 ) {
@@ -363,33 +409,47 @@ export async function updatePurchaseOrderStatusRemote(
   return data;
 }
 
-export function duplicatePurchaseOrder(id: string) {
-  const source = getPurchaseOrderById(id);
+/**
+ * Maakt via de database (POST /api/purchase-orders) een nieuwe
+ * concept-inkooporder met dezelfde leverancier en regels als de bron.
+ */
+export async function duplicatePurchaseOrder(
+  source: PurchaseOrder,
+): Promise<{ id: string }> {
+  const response = await fetch("/api/purchase-orders", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      supplierId: source.supplierId,
+      collectionCode: source.collectionCode,
+      expectedDeliveryDate: source.expectedDeliveryDate,
+      status: "Concept",
+      currency: source.currency,
+      paymentDays: source.paymentDays,
+      supplierReference: "",
+      notes: source.notes,
+      lines: (source.lines ?? []).map((line) => ({
+        variantId: line.variantId,
+        orderedQuantity: line.orderedQuantity,
+        purchasePrice: line.purchasePrice,
+      })),
+    }),
+  });
 
-  if (!source) {
-    throw new Error("Inkooporder niet gevonden.");
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok || !data?.id) {
+    throw new Error(
+      data?.error ?? "Dupliceren is niet gelukt.",
+    );
   }
 
-  return createPurchaseOrder({
-    supplierId: source.supplierId,
-    supplierName: source.supplierName,
-    collectionCode: source.collectionCode,
-    expectedDeliveryDate:
-      source.expectedDeliveryDate,
-    status: "Concept",
-    currency: source.currency,
-    paymentDays: source.paymentDays,
-    supplierReference: "",
-    deliveryAddress: source.deliveryAddress,
-    notes: source.notes,
-    lines: source.lines.map((line) => ({
-      ...line,
-      id: "",
-      receivedQuantity: 0,
-    })),
-  });
+  return { id: data.id as string };
 }
 
+/** @deprecated Leest uit de oude lokale opslag; niet meer in gebruik. */
 export function cancelPurchaseOrder(id: string) {
   const order = getPurchaseOrderById(id);
 
@@ -409,16 +469,16 @@ export function cancelPurchaseOrder(id: string) {
   );
 }
 
-export function reopenPurchaseOrder(id: string) {
-  const order = getPurchaseOrderById(id);
-
-  if (!order) {
-    throw new Error("Inkooporder niet gevonden.");
-  }
-
+/**
+ * Heropent een geannuleerde inkooporder in de database. De nieuwe status
+ * volgt uit wat er al ontvangen is.
+ */
+export async function reopenPurchaseOrder(
+  order: PurchaseOrder,
+) {
   const totals = getPurchaseOrderTotals(order);
 
-  let status: PurchaseOrderStatus = "Besteld";
+  let status: PurchaseOrderStatus;
 
   if (totals.receivedQuantity === 0) {
     status = "Besteld";
@@ -431,9 +491,10 @@ export function reopenPurchaseOrder(id: string) {
     status = "Ontvangen";
   }
 
-  return updatePurchaseOrderStatus(id, status);
+  return updatePurchaseOrderStatusRemote(order.id, status);
 }
 
+/** @deprecated Werkt op de oude lokale opslag; gebruik de API. */
 export function receivePurchaseOrder(
   orderId: string,
   input:
@@ -610,6 +671,7 @@ export function receivePurchaseOrder(
   };
 }
 
+/** @deprecated Werkt op de oude lokale opslag; gebruik DELETE /api/purchase-orders/[id]. */
 export function deletePurchaseOrder(id: string) {
   const order = getPurchaseOrderById(id);
 
@@ -732,8 +794,9 @@ export function getPurchaseOrderDaysOverdue(
   );
 }
 
-export function getPurchaseOrderDashboard() {
-  const orders = getPurchaseOrders();
+export function getPurchaseOrderDashboard(
+  orders: PurchaseOrder[],
+) {
 
   const openOrders = orders.filter(
     (order) =>
