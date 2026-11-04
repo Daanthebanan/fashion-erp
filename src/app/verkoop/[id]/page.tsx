@@ -16,6 +16,7 @@ import { DocumentActionButtons } from "@/components/documents/document-action-bu
 import {
   allocateSalesOrderStock,
   cancelSalesOrder,
+  clearSalesOrderChangeNotice,
   confirmSalesOrder,
   declineOrderLineProduction,
   deleteSalesOrder,
@@ -294,7 +295,9 @@ export default function SalesOrderDetailPage() {
         }`}
         action={
           <div className="button-group">
-            {(order.status === "Concept" ||
+            {(["Concept", "Bevestigd", "Gereserveerd"].includes(
+              order.status,
+            ) ||
               affectedLines.length > 0) && (
               <Link
                 href={`/verkoop/${order.id}/bewerken`}
@@ -319,6 +322,16 @@ export default function SalesOrderDetailPage() {
                         order.id,
                       ),
                     "De orderbevestiging is verstuurd en de order is bevestigd.",
+                  );
+                } else if (
+                  order.changedAfterConfirmationAt
+                ) {
+                  void execute(
+                    () =>
+                      clearSalesOrderChangeNotice(
+                        order.id,
+                      ),
+                    "De aangepaste orderbevestiging is verstuurd.",
                   );
                 } else {
                   setNotification(
@@ -410,6 +423,23 @@ export default function SalesOrderDetailPage() {
           {error}
         </div>
       )}
+
+      {order.changedAfterConfirmationAt &&
+        order.status !== "Concept" && (
+          <div className={styles.changeNotice}>
+            <strong>Gewijzigd na bevestiging</strong>
+            <span>
+              Deze order is aangepast op{" "}
+              {new Intl.DateTimeFormat("nl-NL", {
+                dateStyle: "short",
+                timeStyle: "short",
+              }).format(
+                new Date(order.changedAfterConfirmationAt),
+              )}
+              . Verstuur de orderbevestiging opnieuw naar de klant.
+            </span>
+          </div>
+        )}
 
       {order.status === "Bevestigd" &&
         availability.backorderQuantity >

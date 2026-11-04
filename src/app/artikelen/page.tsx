@@ -34,7 +34,7 @@ import {
   type ProductStatus,
 } from "@/lib/articles";
 import { getArticleHistoryCheck } from "@/lib/article-history";
-import { subscribeToMasterData } from "@/lib/master-data";
+import { getCollections, subscribeToMasterData } from "@/lib/master-data";
 
 type StatusTone =
   | "success"
@@ -219,11 +219,19 @@ export default function ArtikelenPage() {
     [products],
   );
 
+  // Ook collecties zonder artikelen (bijv. een net aangemaakte HS27)
+  // moeten kiesbaar zijn bij bulkbewerken.
   const bulkCollections = useMemo(
-    () =>
-      collections.filter(
-        (item) => item !== "Alle collecties",
-      ),
+    () => [
+      ...new Set([
+        ...getCollections()
+          .filter((item) => item.status !== "Gearchiveerd")
+          .map((item) => item.code),
+        ...collections.filter(
+          (item) => item !== "Alle collecties",
+        ),
+      ]),
+    ],
     [collections],
   );
 

@@ -28,6 +28,7 @@ import {
   type PurchaseOrderStatus,
   type PurchaseReceipt,
 } from "@/lib/purchasing";
+import { loadSalesOrders } from "@/lib/sales";
 import styles from "./purchase-order-detail.module.css";
 
 type Tab =
@@ -147,6 +148,10 @@ export default function PurchaseOrderDetailPage() {
     PurchaseReceipt[]
   >([]);
   const [loaded, setLoaded] = useState(false);
+  // Open-to-buy per variant: ingekocht op alle niet-geannuleerde
+  // inkooporders min verkocht op bevestigde (en verdere) verkooporders.
+  const [openToBuyByVariant, setOpenToBuyByVariant] =
+    useState<Record<string, number> | null>(null);
   const [activeTab, setActiveTab] =
     useState<Tab>("orderregels");
   const [showReceiveDialog, setShowReceiveDialog] =
@@ -185,6 +190,10 @@ export default function PurchaseOrderDetailPage() {
 
     setOrder(selectedOrder ?? null);
 
+    if (Array.isArray(orders)) {
+      void loadOpenToBuy(orders as PurchaseOrder[]);
+    }
+
     if (selectedOrder) {
       setReceiveValues(
         createReceiveValues(selectedOrder),
@@ -208,6 +217,43 @@ export default function PurchaseOrderDetailPage() {
     }
 
     setLoaded(true);
+  }
+
+  async function loadOpenToBuy(
+    purchaseOrders: PurchaseOrder[],
+  ) {
+    try {
+      const salesOrders = await loadSalesOrders();
+      const result: Record<string, number> = {};
+
+      purchaseOrders
+        .filter((item) => item.status !== "Geannuleerd")
+        .forEach((item) => {
+          item.lines.forEach((line) => {
+            result[line.variantId] =
+              (result[line.variantId] ?? 0) +
+              line.orderedQuantity;
+          });
+        });
+
+      salesOrders
+        .filter(
+          (item) =>
+            item.status !== "Concept" &&
+            item.status !== "Geannuleerd",
+        )
+        .forEach((item) => {
+          item.lines.forEach((line) => {
+            result[line.variantId] =
+              (result[line.variantId] ?? 0) -
+              line.quantity;
+          });
+        });
+
+      setOpenToBuyByVariant(result);
+    } catch {
+      setOpenToBuyByVariant(null);
+    }
   }
 
   useEffect(() => {
@@ -1328,6 +1374,12 @@ export default function PurchaseOrderDetailPage() {
                             <th className="table-number">
                               Open
                             </th>
+                            <th
+                              className="table-number"
+                              title="Open-to-buy: ingekocht op alle inkooporders min verkocht op bevestigde verkooporders"
+                            >
+                              OTB
+                            </th>
                             <th className="table-number">
                               Inkoopprijs
                             </th>
@@ -1377,6 +1429,18 @@ export default function PurchaseOrderDetailPage() {
                                 ),
                               ),
                             );
+
+                            const groupOpenToBuy =
+                              openToBuyByVariant
+                                ? group.lines.reduce(
+                                    (total, line) =>
+                                      total +
+                                      (openToBuyByVariant[
+                                        line.variantId
+                                      ] ?? 0),
+                                    0,
+                                  )
+                                : null;
 
                             return (
                               <tr
@@ -1441,6 +1505,20 @@ export default function PurchaseOrderDetailPage() {
                                           ontv.
                                         </div>
                                       )}
+
+                                      {openToBuyByVariant && (
+                                        <div
+                                          className={
+                                            styles.secondaryText
+                                          }
+                                          title="Open-to-buy"
+                                        >
+                                          OTB{" "}
+                                          {openToBuyByVariant[
+                                            line.variantId
+                                          ] ?? 0}
+                                        </div>
+                                      )}
                                     </td>
                                   );
                                 })}
@@ -1463,6 +1541,12 @@ export default function PurchaseOrderDetailPage() {
                                   >
                                     {remaining}
                                   </strong>
+                                </td>
+
+                                <td className="table-number">
+                                  {groupOpenToBuy === null
+                                    ? "—"
+                                    : groupOpenToBuy}
                                 </td>
 
                                 <td className="table-number">
@@ -1527,6 +1611,28 @@ export default function PurchaseOrderDetailPage() {
                             <td className="table-number">
                               <strong>
                                 {totals.remainingQuantity}
+                              </strong>
+                            </td>
+
+                            <td className="table-number">
+                              <strong>
+                                {openToBuyByVariant
+                                  ? Array.from(
+                                      new Set(
+                                        order.lines.map(
+                                          (line) =>
+                                            line.variantId,
+                                        ),
+                                      ),
+                                    ).reduce(
+                                      (total, variantId) =>
+                                        total +
+                                        (openToBuyByVariant[
+                                          variantId
+                                        ] ?? 0),
+                                      0,
+                                    )
+                                  : "—"}
                               </strong>
                             </td>
 

@@ -26,6 +26,8 @@ export type PurchaseOrderLine = {
   orderedQuantity: number;
   receivedQuantity: number;
   purchasePrice: number;
+  // Collectie van het artikel (bijv. HS27); alleen gevuld vanuit de API.
+  collectionCode?: string;
 };
 
 export type PurchaseReceiptLine = {

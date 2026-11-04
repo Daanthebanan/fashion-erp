@@ -16,6 +16,9 @@ type MasterSelectProps = {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  // Artikelen bewaren collecties als code (bijv. HS27), andere
+  // stamgegevens als naam.
+  valueField?: "name" | "code";
 };
 
 export function MasterSelect({
@@ -24,19 +27,32 @@ export function MasterSelect({
   value,
   onChange,
   placeholder,
+  valueField = "name",
 }: MasterSelectProps) {
   const [items, setItems] = useState<MasterDataItem[]>([]);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
 
+  const valueOf = (item: MasterDataItem) =>
+    valueField === "code" && item.code ? item.code : item.name;
+
+  const matchesValue = (item: MasterDataItem) =>
+    Boolean(value) &&
+    (item.name.toLowerCase() === value.toLowerCase() ||
+      (valueField === "code" &&
+        item.code.toLowerCase() === value.toLowerCase()));
+
+  const selectedItem = items.find(matchesValue);
+  const selectedLabel =
+    selectedItem && valueField === "code" && selectedItem.code
+      ? `${selectedItem.code} – ${selectedItem.name}`
+      : value;
+
   function reload() {
     const next = getMasterDataItems(entity);
 
-    if (
-      value &&
-      !next.some((item) => item.name.toLowerCase() === value.toLowerCase())
-    ) {
+    if (value && !next.some(matchesValue)) {
       next.push({
         id: `legacy-${entity}-${value}`,
         code: "",
@@ -90,7 +106,7 @@ export function MasterSelect({
     try {
       const item = addMasterDataItem(entity, proposed);
       reload();
-      onChange(item.name);
+      onChange(valueOf(item));
       setOpen(false);
       setQuery("");
     } catch (error) {
@@ -125,7 +141,7 @@ export function MasterSelect({
           cursor: "pointer",
         }}
       >
-        <span>{value || placeholder || `Kies ${label.toLowerCase()}`}</span>
+        <span>{selectedLabel || placeholder || `Kies ${label.toLowerCase()}`}</span>
         <span aria-hidden="true">⌄</span>
       </button>
 
@@ -166,7 +182,7 @@ export function MasterSelect({
                 key={item.id}
                 type="button"
                 onClick={() => {
-                  onChange(item.name);
+                  onChange(valueOf(item));
                   setOpen(false);
                   setQuery("");
                 }}
@@ -179,7 +195,7 @@ export function MasterSelect({
                   padding: "9px 10px",
                   border: 0,
                   borderRadius: 4,
-                  background: item.name === value ? "#eef6ff" : "transparent",
+                  background: matchesValue(item) ? "#eef6ff" : "transparent",
                   color: "#10233f",
                   textAlign: "left",
                   cursor: "pointer",

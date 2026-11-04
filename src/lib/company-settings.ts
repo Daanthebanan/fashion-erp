@@ -384,23 +384,26 @@ export function roundCommercialPrice(
     return 0;
   }
 
+  // Eerst op centen afronden: een opslagfactor met 4 decimalen geeft
+  // bijv. 44,10 × 3,1735 = 139,95135. Zonder deze stap werd dat
+  // 140,95 in plaats van 139,95.
+  const cents = Math.round(value * 100);
+
   if (rounding === "none") {
-    return Math.round(value * 100) / 100;
+    return cents / 100;
   }
 
   if (rounding === "1.00") {
-    return Math.ceil(value);
+    return Math.ceil(cents / 100);
   }
 
-  const ending = rounding === "0.50" ? 0.5 : 0.95;
-  const base = Math.floor(value);
-  const candidate = base + ending;
+  const endingCents = rounding === "0.50" ? 50 : 95;
+  const baseCents = Math.floor(cents / 100) * 100;
+  const candidateCents = baseCents + endingCents;
 
   return (
-    Math.round(
-      (candidate >= value
-        ? candidate
-        : base + 1 + ending) * 100,
-    ) / 100
+    (candidateCents >= cents
+      ? candidateCents
+      : baseCents + 100 + endingCents) / 100
   );
 }

@@ -14,20 +14,24 @@ function normalize(value: string) {
 
 function exists(
   value: string | undefined,
-  items: { name: string }[],
+  items: { name: string; code?: string }[],
 ) {
   if (!value) return true;
 
+  // Collecties staan op artikelen als code (bijv. HS27); accepteer
+  // daarom zowel de naam als de code.
   return items.some(
     (item) =>
-      normalize(item.name) === normalize(value),
+      normalize(item.name) === normalize(value) ||
+      (item.code !== undefined &&
+        normalize(item.code) === normalize(value)),
   );
 }
 
 function addMissing(
   target: string[],
   value: string | undefined,
-  items: { name: string }[],
+  items: { name: string; code?: string }[],
 ) {
   if (
     value &&
