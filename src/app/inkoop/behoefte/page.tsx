@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { fetchProducts, type Product } from "@/lib/articles";
@@ -93,6 +93,8 @@ export default function PurchaseDemandPage() {
     useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Voorkomt dat een dubbele klik twee identieke inkooporders aanmaakt.
+  const creatingPurchaseOrderRef = useRef(false);
   const [creatingPurchaseOrder, setCreatingPurchaseOrder] =
     useState<string | null>(null);
 
@@ -424,6 +426,11 @@ export default function PurchaseDemandPage() {
       return;
     }
 
+    if (creatingPurchaseOrderRef.current) {
+      return;
+    }
+
+    creatingPurchaseOrderRef.current = true;
     setCreatingPurchaseOrder(group.supplier.id);
     setError("");
 
@@ -462,15 +469,17 @@ export default function PurchaseDemandPage() {
         );
       }
 
+      // De knop blijft uitgeschakeld tot de navigatie klaar is; anders
+      // kan een tweede klik nog een identieke inkooporder aanmaken.
       router.push(`/inkoop/${body.id}`);
     } catch (cause) {
+      creatingPurchaseOrderRef.current = false;
+      setCreatingPurchaseOrder(null);
       setError(
         cause instanceof Error
           ? cause.message
           : "Inkooporder aanmaken mislukt.",
       );
-    } finally {
-      setCreatingPurchaseOrder(null);
     }
   }
 

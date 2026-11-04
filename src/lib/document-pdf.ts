@@ -27,7 +27,7 @@ import {
   fetchProducts,
   getStoredProducts,
 } from "@/lib/articles";
-import { getCustomers } from "@/lib/master-data";
+import { getCustomers, resolveColor } from "@/lib/master-data";
 import type {
   BusinessDocumentType,
   DocumentEmailAttachment,
@@ -560,6 +560,23 @@ function createProductResolver() {
 }
 
 
+function getBlockColorCode(
+  product: StoredProduct | undefined,
+  color: string,
+) {
+  const normalized = color.trim().toLowerCase();
+  const variantCode = product?.variants
+    ?.find(
+      (variant) =>
+        variant.color.trim().toLowerCase() ===
+          normalized &&
+        variant.colorCode?.trim(),
+    )
+    ?.colorCode?.trim();
+
+  // Varianten zonder eigen kleurnummer vallen terug op de stamkleur.
+  return variantCode || resolveColor(color)?.code || "";
+}
 
 type DocumentCustomerInput = {
   customerId?: string;
@@ -797,7 +814,10 @@ function groupSalesLines(
         brand: product?.brand ?? "",
         season: product?.seasonType ?? "",
         color: first.color,
-        colorCode: "",
+        colorCode: getBlockColorCode(
+          product,
+          first.color,
+        ),
         sku: first.sku,
         barcode: "",
         sizes,
@@ -935,7 +955,10 @@ function groupDeliveryLines(
       brand: product?.brand ?? "",
       season: product?.seasonType ?? "",
       color: first.color,
-      colorCode: "",
+      colorCode: getBlockColorCode(
+        product,
+        first.color,
+      ),
       sku: first.sku,
       barcode: "",
       sizes,
@@ -1169,7 +1192,10 @@ async function getPurchaseDefinition(
           brand: product?.brand ?? "",
           season: order.collectionCode || "",
           color: first.color,
-          colorCode: "",
+          colorCode: getBlockColorCode(
+            product,
+            first.color,
+          ),
           sku: first.sku,
           barcode: "",
           sizes,
@@ -1358,7 +1384,10 @@ function getInvoiceDefinition(
           brand: product?.brand ?? "",
           season: product?.seasonType ?? "",
           color: first.color,
-          colorCode: "",
+          colorCode: getBlockColorCode(
+            product,
+            first.color,
+          ),
           sku: first.sku,
           barcode: "",
           sizes,
@@ -1527,7 +1556,10 @@ function getCreditNoteDefinition(
           brand: product?.brand ?? "",
           season: product?.seasonType ?? "",
           color: first.color,
-          colorCode: "",
+          colorCode: getBlockColorCode(
+            product,
+            first.color,
+          ),
           sku: first.sku,
           barcode: "",
           sizes,
@@ -2280,11 +2312,65 @@ function getBlockHeight(
     ? 35
     : 18;
 
+  const { chunks } = getSizeLayout(block.sizes);
+
   return (
     headerHeight +
-    5 +
-    block.matrixRows.length * 5
+    chunks.length *
+      (5 + block.matrixRows.length * 5)
   );
+}
+
+const SIZE_COLUMN_START = MARGIN_X + 48;
+const ORDER_COLUMN_X = 130;
+const MIN_TOTAL_COLUMN_X = 105;
+// Ruimte tussen de eerste maat en de kolom Totaal; daarna volgt Ordernr.
+const SIZE_AREA_WIDTH = ORDER_COLUMN_X - SIZE_COLUMN_START - 16;
+const PREFERRED_SIZE_COLUMN_WIDTH = 12;
+const MIN_SIZE_COLUMN_WIDTH = 6.5;
+
+function getSizeLayout(sizes: string[]) {
+  const count = Math.max(sizes.length, 1);
+  const fitsOnOneRow =
+    count === 1 ||
+    SIZE_AREA_WIDTH / (count - 1) >=
+      MIN_SIZE_COLUMN_WIDTH;
+  const perRow = fitsOnOneRow
+    ? count
+    : Math.floor(
+        SIZE_AREA_WIDTH / MIN_SIZE_COLUMN_WIDTH,
+      ) + 1;
+  const columnWidth =
+    perRow === 1
+      ? PREFERRED_SIZE_COLUMN_WIDTH
+      : Math.min(
+          PREFERRED_SIZE_COLUMN_WIDTH,
+          SIZE_AREA_WIDTH / (perRow - 1),
+        );
+
+  // Bij veel maten breken we de maattabel af over meerdere regels,
+  // zodat een maat nooit in de kolom Totaal terechtkomt.
+  const chunks: string[][] = [];
+
+  for (let index = 0; index < sizes.length; index += perRow) {
+    chunks.push(sizes.slice(index, index + perRow));
+  }
+
+  if (chunks.length === 0) {
+    chunks.push([]);
+  }
+
+  return {
+    chunks,
+    columnWidth,
+    fontSize: columnWidth < 9 ? 5.8 : 6.5,
+    totalColumnX: Math.max(
+      MIN_TOTAL_COLUMN_X,
+      SIZE_COLUMN_START +
+        (perRow - 1) * columnWidth +
+        8,
+    ),
+  };
 }
 
 function drawArticleBlock(
@@ -2399,11 +2485,15 @@ function drawArticleBlock(
     dividerY,
   );
 
-  const sizeColumnStart = MARGIN_X + 48;
-  const sizeColumnWidth = 12;
+  const sizeLayout = getSizeLayout(block.sizes);
+  const sizeColumnStart = SIZE_COLUMN_START;
+  const sizeColumnWidth = sizeLayout.columnWidth;
+  const rowsHeight = block.matrixRows.length * 5;
+  const chunkY = (chunkIndex: number) =>
+    chunkIndex * (5 + rowsHeight);
 
-  const totalColumnX = 105;
-  const orderColumnX = 130;
+  const totalColumnX = sizeLayout.totalColumnX;
+  const orderColumnX = ORDER_COLUMN_X;
   const salesPriceColumnX = 155;
   const retailPriceColumnX = 183;
 
@@ -2422,16 +2512,24 @@ function drawArticleBlock(
     tableHeaderY,
   );
 
-  block.sizes.forEach(
-    (size, index) => {
-      pdf.text(
-        size,
-        sizeColumnStart +
-          index * sizeColumnWidth,
-        tableHeaderY,
-      );
+  pdf.setFontSize(
+    Math.min(6.3, sizeLayout.fontSize),
+  );
+
+  sizeLayout.chunks.forEach(
+    (chunk, chunkIndex) => {
+      chunk.forEach((size, index) => {
+        pdf.text(
+          size,
+          sizeColumnStart +
+            index * sizeColumnWidth,
+          tableHeaderY + chunkY(chunkIndex),
+        );
+      });
     },
   );
+
+  pdf.setFontSize(6.3);
 
   pdf.text(
     isEnglish ? "Total" : "Totaal",
@@ -2492,21 +2590,27 @@ function drawArticleBlock(
         rowY,
       );
 
-      block.sizes.forEach(
-        (size, index) => {
-          const quantity =
-            row.quantities[size] ?? 0;
+      pdf.setFontSize(sizeLayout.fontSize);
 
-          pdf.text(
-            quantity > 0
-              ? String(quantity)
-              : "",
-            sizeColumnStart +
-              index * sizeColumnWidth,
-            rowY,
-          );
+      sizeLayout.chunks.forEach(
+        (chunk, chunkIndex) => {
+          chunk.forEach((size, index) => {
+            const quantity =
+              row.quantities[size] ?? 0;
+
+            pdf.text(
+              quantity > 0
+                ? String(quantity)
+                : "",
+              sizeColumnStart +
+                index * sizeColumnWidth,
+              rowY + chunkY(chunkIndex),
+            );
+          });
         },
       );
+
+      pdf.setFontSize(6.5);
 
       const rowTotal = Object.values(
         row.quantities,

@@ -308,11 +308,7 @@ export async function hydrateMasterData(): Promise<void> {
     }
   });
 
-  if (colorFamiliesChanged) {
-    await persistMasterDataStore(
-      masterDataCache,
-    );
-  }
+  let suppliersChanged = false;
 
   requiredSuppliers.forEach((name) => {
     const exists =
@@ -337,18 +333,54 @@ export async function hydrateMasterData(): Promise<void> {
         createdAt: now,
         updatedAt: now,
       });
+
+      suppliersChanged = true;
     }
   });
 
   masterDataCache.suppliers = suppliers;
 
-  await persistMasterDataStore(
-    masterDataCache,
-  );
+  // Alleen terugschrijven als er echt iets is toegevoegd. Een
+  // onvoorwaardelijke schrijfactie bij iedere paginalaad overschreef
+  // wijzigingen die intussen in een ander tabblad waren opgeslagen.
+  if (colorFamiliesChanged || suppliersChanged) {
+    await persistMasterDataStore(
+      masterDataCache,
+    );
+  }
 
   if (isBrowser()) {
     window.dispatchEvent(new CustomEvent(CHANGE_EVENT));
   }
+}
+
+let persistInFlight: Promise<void> | null = null;
+let persistQueued = false;
+
+// Stamgegevens worden als één geheel opgeslagen. Gelijktijdige
+// schrijfacties konden in willekeurige volgorde aankomen, waardoor een
+// oudere versie (bijv. van vóór een hernoeming) als laatste won. We
+// schrijven daarom één voor één en altijd de nieuwste stand.
+function schedulePersistMasterData() {
+  if (persistInFlight) {
+    persistQueued = true;
+    return;
+  }
+
+  persistInFlight = (async () => {
+    try {
+      do {
+        persistQueued = false;
+        if (masterDataCache) {
+          await persistMasterDataStore(masterDataCache);
+        }
+      } while (persistQueued);
+    } catch (error) {
+      console.error("Stamgegevens konden niet in Supabase worden opgeslagen.", error);
+    } finally {
+      persistInFlight = null;
+    }
+  })();
 }
 
 function saveMasterDataStore(
@@ -360,9 +392,25 @@ function saveMasterDataStore(
     window.dispatchEvent(new CustomEvent(CHANGE_EVENT));
   }
 
-  void persistMasterDataStore(store).catch((error) => {
-    console.error("Stamgegevens konden niet in Supabase worden opgeslagen.", error);
+  schedulePersistMasterData();
+}
+
+async function propagateColorRename(from: string, to: string) {
+  const response = await fetch("/api/master-data/rename-color", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ from, to }),
   });
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as
+      | { error?: string }
+      | null;
+    throw new Error(body?.error ?? "Kleur hernoemen op artikelen mislukt.");
+  }
+
+  const { fetchProducts } = await import("@/lib/articles");
+  await fetchProducts();
 }
 
 export function getMasterDataItems(
@@ -416,6 +464,8 @@ export function updateMasterDataItem(
   >,
 ) {
   const store = getMasterDataStore();
+  const previous = store[entity].find((item) => item.id === id);
+
   saveMasterDataStore({
     ...store,
     [entity]: store[entity].map((item) =>
@@ -424,6 +474,26 @@ export function updateMasterDataItem(
         : item,
     ),
   });
+
+  const nextName = changes.name?.trim();
+
+  if (
+    entity === "colorFamilies" &&
+    previous &&
+    nextName &&
+    nextName !== previous.name
+  ) {
+    void propagateColorRename(previous.name, nextName).catch((error) => {
+      console.error(error);
+      if (isBrowser()) {
+        window.alert(
+          `De kleur is hernoemd, maar niet op alle artikelen doorgevoerd: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    });
+  }
 }
 
 export function deleteMasterDataItem(

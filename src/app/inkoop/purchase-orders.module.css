@@ -638,3 +638,15 @@
     min-width: 0;
   }
 }
+.clickableRow {
+  cursor: pointer;
+}
+
+.clickableRow:hover td {
+  background: #f5f8fc;
+}
+
+.rowLink {
+  font-weight: 700;
+  color: inherit;
+}

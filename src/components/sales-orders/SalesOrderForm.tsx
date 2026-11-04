@@ -95,6 +95,9 @@ export function SalesOrderForm({
   const [requestedDeliveryDate, setRequestedDeliveryDate] = useState("");
   const [status, setStatus] =
     useState<SalesOrderStatus>("Concept");
+  // Een al bevestigde order wordt aangevuld met behoud van status;
+  // terugzetten naar Concept zou reserveringen laten hangen.
+  const [statusLocked, setStatusLocked] = useState(false);
   const [notes, setNotes] = useState("");
   const [variants, setVariants] = useState<MatrixVariant[]>([]);
   const [quantities, setQuantities] = useState<
@@ -309,6 +312,7 @@ export function SalesOrderForm({
           setNotes(existingOrder.notes ?? "");
 
           setStatus(existingOrder.status);
+          setStatusLocked(existingOrder.status !== "Concept");
 
           const existingCustomer =
             activeCustomers.find(
@@ -663,10 +667,16 @@ export function SalesOrderForm({
                       event.target.value as SalesOrderStatus,
                     )
                   }
-                  disabled={saving}
+                  disabled={saving || statusLocked}
                 >
-                  <option value="Concept">Concept</option>
-                  <option value="Bevestigd">Bevestigd</option>
+                  {statusLocked ? (
+                    <option value={status}>{status}</option>
+                  ) : (
+                    <>
+                      <option value="Concept">Concept</option>
+                      <option value="Bevestigd">Bevestigd</option>
+                    </>
+                  )}
                 </select>
               </label>
 

@@ -76,6 +76,11 @@ const groups: NavigationGroup[] = [
         icon: "document",
       },
       {
+        label: "Totaaloverzicht",
+        href: "/inkoop/totaal",
+        icon: "document",
+      },
+      {
         label: "Ontvangsten",
         href: "/inkoop/ontvangsten",
         icon: "check",

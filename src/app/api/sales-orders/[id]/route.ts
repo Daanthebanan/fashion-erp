@@ -39,7 +39,7 @@ export async function PUT(request:Request,{params}:{params:Promise<{id:string}>}
 
   const { data: existingOrder } = await supabase
     .from("sales_orders")
-    .select("status")
+    .select("status, profile")
     .eq("organization_id", organizationId)
     .eq("id", id)
     .maybeSingle();
@@ -48,9 +48,15 @@ export async function PUT(request:Request,{params}:{params:Promise<{id:string}>}
   const nextStatus = String(input.status ?? "Concept");
   const isConfirming = previousStatus === "Concept" && nextStatus === "Bevestigd";
   const isCancelling = previousStatus !== "Geannuleerd" && nextStatus === "Geannuleerd";
+  // Een bevestigde order mag worden aangevuld of aangepast zolang er nog
+  // niets gereedgemeld of verzonden is. Reserveringen worden dan bijgewerkt
+  // en de order krijgt de melding dat de bevestiging opnieuw moet.
+  const isEditingConfirmed =
+    ["Bevestigd", "Gereserveerd"].includes(previousStatus) &&
+    nextStatus === previousStatus;
   let stockLocationId = "";
 
-  if (isConfirming || isCancelling) {
+  if (isConfirming || isCancelling || isEditingConfirmed) {
     const location = await getDefaultStockLocation(organizationId);
     stockLocationId = location.id;
   }
@@ -59,9 +65,6 @@ export async function PUT(request:Request,{params}:{params:Promise<{id:string}>}
   const discount = lines.reduce((t,l)=>t+num(l.quantity)*num(l.unitPrice)*num(l.discountPercentage)/100,0);
   const subtotal = subtotalBefore-discount;
   const updatedAt = new Date().toISOString();
-
-  const {error}=await supabase.from("sales_orders").update({status:nextStatus,requested_delivery_date:String(input.requestedDeliveryDate??"")||null,notes:String(input.notes??"")||null,subtotal,vat:subtotal*.21,total:subtotal*1.21,profile:{...input,updatedAt},updated_at:updatedAt}).eq("organization_id",organizationId).eq("id",id);
-  if(error)throw new ApiError(error.message);
 
   const existingLinesInput = lines.filter((l) => l.id);
   const newLinesInput = lines.filter((l) => !l.id);
@@ -73,7 +76,7 @@ export async function PUT(request:Request,{params}:{params:Promise<{id:string}>}
     existingLineIds.length > 0
       ? await supabase
           .from("sales_order_lines")
-          .select("id, sales_order_id, variant_id, quantity, reserved_quantity, profile")
+          .select("id, sales_order_id, variant_id, quantity, delivered_quantity, reserved_quantity, profile")
           .eq("organization_id", organizationId)
           .in("id", existingLineIds)
       : { data: [], error: null };
@@ -83,6 +86,49 @@ export async function PUT(request:Request,{params}:{params:Promise<{id:string}>}
   const currentById = new Map(
     (currentLinesData ?? []).map((row) => [String(row.id), row]),
   );
+
+  const linesChanged =
+    newLinesInput.some((l) => num(l.quantity) > 0) ||
+    existingLinesInput.some((l) => {
+      const current = currentById.get(String(l.id));
+      return current !== undefined && num(current.quantity) !== num(l.quantity);
+    });
+
+  const previousProfile = rec(existingOrder?.profile);
+  const changedAfterConfirmationAt =
+    isEditingConfirmed && linesChanged
+      ? updatedAt
+      : "changedAfterConfirmationAt" in input
+        ? input.changedAfterConfirmationAt ?? null
+        : previousProfile.changedAfterConfirmationAt ?? null;
+
+  const {error}=await supabase.from("sales_orders").update({status:nextStatus,requested_delivery_date:String(input.requestedDeliveryDate??"")||null,notes:String(input.notes??"")||null,subtotal,vat:subtotal*.21,total:subtotal*1.21,profile:{...input,changedAfterConfirmationAt,updatedAt},updated_at:updatedAt}).eq("organization_id",organizationId).eq("id",id);
+  if(error)throw new ApiError(error.message);
+
+  // Bij een verlaagd aantal op een bevestigde order geven we de
+  // reservering boven het nieuwe aantal vrij.
+  const reservedByLine = new Map<string, number>();
+
+  if (isEditingConfirmed) {
+    const releases = existingLinesInput.flatMap((l) => {
+      const current = currentById.get(String(l.id));
+      if (!current) return [];
+
+      const reserved = num(current.reserved_quantity);
+      const maxReserved = Math.max(
+        0,
+        num(l.quantity) - num(current.delivered_quantity),
+      );
+      const keep = Math.min(reserved, maxReserved);
+      reservedByLine.set(String(l.id), keep);
+
+      return reserved > keep
+        ? [{ variantId: String(current.variant_id), quantity: reserved - keep }]
+        : [];
+    });
+
+    await releaseBatch(supabase, organizationId, stockLocationId, releases);
+  }
 
   if (isCancelling) {
     const releases = existingLinesInput.map((l) => {
@@ -117,7 +163,8 @@ export async function PUT(request:Request,{params}:{params:Promise<{id:string}>}
       // Cancelling zeroes reservations via releaseBatch above and the
       // client already sends 0 here; any other save keeps the client's
       // value as before.
-      reserved_quantity: num(l.reservedQuantity),
+      reserved_quantity:
+        reservedByLine.get(String(l.id)) ?? num(l.reservedQuantity),
       unit_price: num(l.unitPrice),
       discount_percentage: num(l.discountPercentage),
       line_total: num(l.quantity)*num(l.unitPrice)*(1-num(l.discountPercentage)/100),
@@ -159,7 +206,7 @@ export async function PUT(request:Request,{params}:{params:Promise<{id:string}>}
     if(insertError) throw new ApiError(insertError.message);
   }
 
-  if (isConfirming) {
+  if (isConfirming || isEditingConfirmed) {
     await reserveBatchForOrder(supabase, organizationId, stockLocationId, id);
   }
 

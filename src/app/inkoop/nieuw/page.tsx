@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
@@ -69,6 +70,9 @@ export default function NewPurchaseOrderPage() {
   >({});
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  // Voorkomt dat een dubbele klik twee identieke inkooporders aanmaakt.
+  const savingRef = useRef(false);
 
   useEffect(() => {
     async function loadMasterData() {
@@ -334,6 +338,10 @@ export default function NewPurchaseOrderPage() {
   }
 
   async function handleSave() {
+    if (savingRef.current) {
+      return;
+    }
+
     setError("");
 
     const supplier = suppliers.find(
@@ -357,48 +365,59 @@ export default function NewPurchaseOrderPage() {
       return;
     }
 
-    const response =
-      await fetch(
-        "/api/purchase-orders",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
+    savingRef.current = true;
+    setSaving(true);
+
+    try {
+      const response =
+        await fetch(
+          "/api/purchase-orders",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              supplierId,
+              collectionCode,
+              expectedDeliveryDate,
+              status,
+              notes,
+              lines: selectedLines.map(
+                (line) => ({
+                  variantId:
+                    line.variantId,
+                  orderedQuantity:
+                    line.orderedQuantity,
+                  purchasePrice:
+                    line.purchasePrice,
+                }),
+              ),
+            }),
           },
-          body: JSON.stringify({
-            supplierId,
-            collectionCode,
-            expectedDeliveryDate,
-            status,
-            notes,
-            lines: selectedLines.map(
-              (line) => ({
-                variantId:
-                  line.variantId,
-                orderedQuantity:
-                  line.orderedQuantity,
-                purchasePrice:
-                  line.purchasePrice,
-              }),
-            ),
-          }),
-        },
-      );
+        );
 
-    const order =
-      await response.json();
+      const order =
+        await response.json().catch(() => ({}));
 
-    console.log("PURCHASE ORDER RESPONSE", order);
+      if (!response.ok || !order.id) {
+        throw new Error(
+          order.error ||
+            "Inkooporder maken mislukt.",
+        );
+      }
 
-    if (!response.ok) {
+      // De knop blijft uitgeschakeld tot de navigatie klaar is.
+      router.push(`/inkoop/${order.id}`);
+    } catch (cause) {
+      savingRef.current = false;
+      setSaving(false);
       setError(
-        order.error ||
-          "Inkooporder maken mislukt.",
+        cause instanceof Error
+          ? cause.message
+          : "Inkooporder maken mislukt.",
       );
-      return;
     }
-
-    router.push(`/inkoop/${order.id}`);
   }
 
   return (
@@ -677,8 +696,9 @@ export default function NewPurchaseOrderPage() {
           className="button button-primary"
           type="button"
           onClick={handleSave}
+          disabled={saving}
         >
-          Inkooporder opslaan
+          {saving ? "Inkooporder opslaan..." : "Inkooporder opslaan"}
         </button>
       </div>
     </div>

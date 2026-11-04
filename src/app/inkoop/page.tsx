@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { getSuppliers } from "@/lib/master-data";
+import { fetchSuppliers, type Supplier } from "@/lib/suppliers";
 import {
   filterPurchaseOrders,
   getPurchaseOrderTotals,
@@ -40,7 +41,9 @@ function date(value: string) {
 }
 
 export default function PurchasingPage() {
+  const router = useRouter();
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<PurchaseOrderStatus | "Alle statussen">("Alle statussen");
   const [supplierId, setSupplierId] = useState("");
@@ -73,8 +76,6 @@ export default function PurchasingPage() {
       }
 
       if (Array.isArray(data)) {
-        console.log("PURCHASE ORDERS DEBUG", data);
-
         setOrders(
           data.map((order) => ({
             ...order,
@@ -85,9 +86,14 @@ export default function PurchasingPage() {
     }
 
     loadOrders();
+
+    // Echte leveranciers (zelfde id's als op de inkooporders), niet de
+    // stamgegevenslijst met demo-namen.
+    fetchSuppliers()
+      .then(setSuppliers)
+      .catch(() => setSuppliers([]));
   }, []);
 
-  const suppliers = useMemo(() => getSuppliers(), []);
   const filtered = useMemo(
     () => filterPurchaseOrders(orders, { search, status, supplierId, overdueOnly }),
     [orders, search, status, supplierId, overdueOnly],
@@ -104,7 +110,7 @@ export default function PurchasingPage() {
         eyebrow="Procurement"
         title="Inkooporders"
         description="Plan bestellingen, bewaak leverdata en verwerk goederenontvangsten."
-        action={<Link href="/inkoop/nieuw" className="button button-primary"><span className="button-plus">+</span>Nieuwe inkooporder</Link>}
+        action={<div className="button-group"><Link href="/inkoop/totaal" className="button button-secondary">Totaaloverzicht</Link><Link href="/inkoop/nieuw" className="button button-primary"><span className="button-plus">+</span>Nieuwe inkooporder</Link></div>}
       />
 
       <section className="article-summary-grid">
@@ -128,7 +134,14 @@ export default function PurchasingPage() {
         {filtered.length === 0 ? <div className={styles.empty}>Geen inkooporders gevonden met deze filters.</div> : (
           <div className="table-wrapper"><table className="data-table"><thead><tr><th>Ordernummer</th><th>Leverancier</th><th>Collectie</th><th>Orderdatum</th><th>Leverdatum</th><th>Status</th><th>Voortgang</th><th className="table-number">Waarde</th></tr></thead><tbody>
             {filtered.map((order) => { const totals = getPurchaseOrderTotals(order); const late = isPurchaseOrderOverdue(order); return (
-              <tr key={order.id}>
+              <tr
+                key={order.id}
+                className={styles.clickableRow}
+                onClick={(event) => {
+                  if ((event.target as HTMLElement).closest("a")) return;
+                  router.push(`/inkoop/${order.id}`);
+                }}
+              >
                 <td><Link className={styles.rowLink} href={`/inkoop/${order.id}`}>{order.orderNumber}</Link><div className={styles.meta}>{"reference" in order ? ((order as PurchaseOrder & { reference?: string }).reference || "Geen referentie") : "Geen referentie"}</div></td>
                 <td className="table-primary">{order.supplierName}</td><td>{order.collectionCode}</td><td>{date(order.orderDate)}</td><td className={late ? styles.overdue : ""}>{date(order.expectedDeliveryDate)}{late && <div className={styles.meta}>Te laat</div>}</td>
                 <td><StatusBadge label={order.status} tone={tone(order.status)} /></td>

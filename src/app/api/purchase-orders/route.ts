@@ -36,6 +36,8 @@ function mapPurchaseOrder(row: any) {
         line.product_variants?.color ?? "",
       size:
         line.product_variants?.size ?? "",
+      collectionCode:
+        line.product_variants?.products?.season ?? "",
       orderedQuantity: Number(line.ordered_quantity ?? 0),
       receivedQuantity: Number(line.received_quantity ?? 0),
       purchasePrice: Number(line.unit_price ?? 0),
@@ -110,7 +112,8 @@ export async function GET() {
               size,
               products(
                 product_code,
-                name
+                name,
+                season
               )
             )
           )

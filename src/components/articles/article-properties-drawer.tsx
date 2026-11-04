@@ -318,6 +318,7 @@ export function ArticlePropertiesDrawer({
               <MasterSelect
                 entity="collections"
                 label="Collectie"
+                valueField="code"
                 value={form.collection}
                 onChange={(value) => {
                   setForm((current) => current ? { ...current, collection: value } : current);
