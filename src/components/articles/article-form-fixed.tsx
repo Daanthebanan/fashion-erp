@@ -55,6 +55,18 @@ type ArticleFormProps = {
   onSubmit: (input: ProductInput) => void;
 };
 
+/*
+ * Imports zonder producttype of collectie zetten daar de vulwaarden "XX" en
+ * "XXXX" neer. Die staan niet in Stamgegevens, dus bij bewerken laten we ze leeg
+ * in plaats van het opslaan te blokkeren met een melding over ontbrekende stamgegevens.
+ */
+const IMPORT_PLACEHOLDERS = new Set(["XX", "XXXX"]);
+
+function withoutPlaceholder(value: string | undefined) {
+  const trimmed = (value ?? "").trim();
+  return IMPORT_PLACEHOLDERS.has(trimmed.toUpperCase()) ? "" : trimmed;
+}
+
 export function ArticleForm({
   initialProduct,
   submitLabel,
@@ -83,10 +95,10 @@ export function ArticleForm({
     initialProduct?.name ?? "",
   );
   const [collection, setCollection] = useState(
-    initialProduct?.collection ?? "",
+    withoutPlaceholder(initialProduct?.collection),
   );
   const [category, setCategory] = useState(
-    initialProduct?.category ?? "",
+    withoutPlaceholder(initialProduct?.category),
   );
   const [supplierId, setSupplierId] = useState(
     initialProduct?.supplierId ?? "",
@@ -110,7 +122,7 @@ export function ArticleForm({
     initialProduct?.material ?? "",
   );
   const [garmentType, setGarmentType] = useState(
-    initialProduct?.garmentType ?? "",
+    withoutPlaceholder(initialProduct?.garmentType),
   );
   const [fit, setFit] = useState(
     initialProduct?.fit ?? "",
