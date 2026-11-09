@@ -566,7 +566,6 @@ export function ArticleForm({
     if (saving) return;
 
     setError("");
-    setSaving(true);
 
     const normalizedCode = code
       .trim()
@@ -615,7 +614,6 @@ export function ArticleForm({
           masterDataValidation.missing,
         ).join("\n"),
       );
-      setSaving(false);
       return;
     }
 
@@ -662,6 +660,8 @@ export function ArticleForm({
       );
       return;
     }
+
+    setSaving(true);
 
     try {
       await onSubmit({
